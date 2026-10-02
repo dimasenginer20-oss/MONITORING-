@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Roblox Monitor</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#08040f;color:#f6efff;font-family:Inter,Arial,sans-serif}
+body:before{content:"";position:fixed;inset:0;background:radial-gradient(circle at 50% 0,#35105e 0,transparent 45%);pointer-events:none}
+.wrap{position:relative;width:min(1050px,92%);margin:auto;padding:42px 0}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+.brand{display:flex;gap:12px;align-items:center}
+.logo{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;font-weight:900;background:linear-gradient(135deg,#b968ff,#6734e9);box-shadow:0 0 30px #8d42ff55}
+h1{margin:0;font-size:24px}.sub{margin:4px 0 0;color:#93869f;font-size:13px}
+.live{padding:8px 12px;border-radius:999px;font-size:11px;color:#58ed9b;background:#10241a;border:1px solid #245d40}
+.search{display:flex;gap:8px;padding:8px;background:#100818;border:1px solid #29183d;border-radius:17px;margin-bottom:16px}
+input{flex:1;min-width:0;background:none;border:0;outline:0;color:#fff;padding:12px;font-size:15px}
+button{border:0;border-radius:11px;background:#9654ed;color:white;font-weight:800;padding:0 20px;cursor:pointer}
+button:hover{filter:brightness(1.12)}
+.error{display:none;padding:12px;border-radius:12px;background:#2a1018;border:1px solid #692536;color:#ffb7c1;margin-bottom:16px;font-size:13px}
+.grid{display:grid;grid-template-columns:1.25fr .75fr;gap:16px}
+.card{background:linear-gradient(145deg,#140b20,#0e0715);border:1px solid #29183d;border-radius:20px;padding:22px;box-shadow:0 15px 50px #0006}
+.empty{text-align:center;color:#81748d;padding:45px 10px}
+.profile{display:flex;gap:17px;align-items:center}
+.avatar{width:78px;height:78px;border-radius:18px;object-fit:cover;background:#21132f}
+.name{font-size:21px;font-weight:850}.username{color:#94889e;font-size:13px;margin-top:4px}
+.badge{display:inline-flex;gap:7px;align-items:center;margin-top:10px;padding:7px 10px;border:1px solid #2a1b3c;background:#1a1125;border-radius:999px;font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:#ff5d73}.dot.on{background:#45e88e;box-shadow:0 0 12px #45e88e}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:22px}
+.stat{padding:15px;border-radius:14px;background:#170d24;border:1px solid #29183d}
+.label{font-size:10px;color:#82758e;text-transform:uppercase;letter-spacing:.1em}.value{margin-top:7px;font-size:14px;font-weight:700;word-break:break-word}
+.title{font-size:12px;color:#bdb0c9;text-transform:uppercase;letter-spacing:.1em;margin-bottom:12px}
+.activity{display:flex;gap:10px;padding:12px 0;border-bottom:1px solid #21142e;font-size:13px}.activity:last-child{border:0}
+.time{color:#80738b;font-size:11px;min-width:70px}
+footer{text-align:center;color:#62566c;font-size:11px;margin-top:25px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}header{align-items:flex-start}.live{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+<div class="brand"><div class="logo">R</div><div><h1>Roblox Monitor</h1><p class="sub">Real-time account activity</p></div></div>
+<div class="live">● LIVE</div>
+</header>
+
+<form class="search" id="form">
+<input id="username" placeholder="Username Roblox..." maxlength="20" autocomplete="off">
+<button>Monitor</button>
+</form>
+<div class="error" id="error"></div>
+
+<div class="grid">
+<div class="card"><div id="profile" class="empty">Masukkan username Roblox untuk mulai memantau.</div></div>
+<div class="card">
+<div class="title">Activity Log</div>
+<div id="logs" class="empty">Belum ada aktivitas.</div>
+</div>
+</div>
+<footer>Auto refresh setiap 15 detik • Roblox public API</footer>
+</div>
+
+<script>
+const $=x=>document.getElementById(x);
+let timer=null,lastType=null,logs=[];
+
+function esc(v){return String(v??"-").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function date(v){return v?new Date(v).toLocaleString("id-ID",{dateStyle:"medium",timeStyle:"short"}):"-"}
+function addLog(t){
+ logs.unshift({t:new Date(),text:t}); logs=logs.slice(0,8);
+ $("logs").innerHTML=logs.map(x=>`<div class="activity"><span class="time">${x.t.toLocaleTimeString("id-ID")}</span><span>${esc(x.text)}</span></div>`).join("");
+}
+
+async function check(){
+ const username=$("username").value.trim();
+ if(!username)return;
+ $("error").style.display="none";
+ try{
+   const u=await fetch("https://users.roblox.com/v1/usernames/users",{
+     method:"POST",headers:{"Content-Type":"application/json"},
+     body:JSON.stringify({usernames:[username],excludeBannedUsers:false})
+   });
+   if(!u.ok)throw Error("Roblox API gagal merespons.");
+   const ud=await u.json();
+   if(!ud.data?.length)throw Error("Username Roblox tidak ditemukan.");
+   const id=ud.data[0].id;
+
+   const [profile,pres,avatar]=await Promise.all([
+     fetch(`https://users.roblox.com/v1/users/${id}`).then(r=>r.json()),
+     fetch("https://presence.roblox.com/v1/presence/users",{
+       method:"POST",headers:{"Content-Type":"application/json"},
+       body:JSON.stringify({userIds:[id]})
+     }).then(r=>r.json()),
+     fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${id}&size=150x150&format=Png&isCircular=false`).then(r=>r.json())
+   ]);
+
+   const p=pres.userPresences?.[0]||{};
+   const states=["Offline","Online","In Game","In Studio"];
+   const state=states[p.userPresenceType]||"Unknown";
+
+   $("profile").innerHTML=`
+   <div class="profile">
+    <img class="avatar" src="${esc(avatar.data?.[0]?.imageUrl)}">
+    <div>
+      <div class="name">${esc(profile.displayName)}</div>
+      <div class="username">@${esc(profile.name)} • ID ${esc(id)}</div>
+      <div class="badge"><span class="dot ${p.userPresenceType?"on":""}"></span>${state}</div>
+    </div>
+   </div>
+   <div class="stats">
+    <div class="stat"><div class="label">Aktivitas</div><div class="value">${esc(p.lastLocation||"-")}</div></div>
+    <div class="stat"><div class="label">Place ID</div><div class="value">${esc(p.placeId||"-")}</div></div>
+    <div class="stat"><div class="label">Last Online</div><div class="value">${date(p.lastOnline)}</div></div>
+    <div class="stat"><div class="label">Checked</div><div class="value">${date(new Date())}</div></div>
+   </div>`;
+
+   if(lastType!==p.userPresenceType)addLog(`${profile.name} → ${state}${p.lastLocation?" • "+p.lastLocation:""}`);
+   lastType=p.userPresenceType;
+ }catch(e){
+   $("error").textContent=e.message+" Jika browser memblokir CORS, gunakan versi backend Node.js.";
+   $("error").style.display="block";
+ }
+}
+
+$("form").addEventListener("submit",e=>{
+ e.preventDefault();clearInterval(timer);lastType=null;logs=[];
+ $("logs").innerHTML='<div class="empty">Memantau...</div>';
+ check();timer=setInterval(check,15000);
+});
+</script>
+</body>
+</html>
